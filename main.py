@@ -13,6 +13,10 @@ import re
 from urllib.parse import urlparse
 import time
 import asyncio
+import random
+import requests
+from bs4 import BeautifulSoup
+from typing import Optional, List, Dict
 
 app = FastAPI()
 
@@ -89,17 +93,45 @@ def get_format_info(format: str):
     else:
         return None
 
+def get_proxies() -> List[Dict[str, str]]:
+    """Get a list of free proxies."""
+    try:
+        response = requests.get('https://free-proxy-list.net/')
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        proxies = []
+        table = soup.find('table')
+        if table:
+            rows = table.find_all('tr')[1:]  # Skip header row
+            for row in rows:
+                cols = row.find_all('td')
+                if len(cols) >= 7 and cols[6].text.strip() == 'yes':  # Only HTTPS proxies
+                    proxy = {
+                        'http': f'http://{cols[0].text.strip()}:{cols[1].text.strip()}',
+                        'https': f'https://{cols[0].text.strip()}:{cols[1].text.strip()}'
+                    }
+                    proxies.append(proxy)
+        return proxies
+    except Exception:
+        return []
+
+def get_random_proxy() -> Optional[Dict[str, str]]:
+    """Get a random proxy from the list."""
+    proxies = get_proxies()
+    return random.choice(proxies) if proxies else None
+
 def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, video_source: str) -> dict:
     """Get yt-dlp options based on format and video source."""
+    proxy = get_random_proxy()
+    
     common_opts = {
         'progress_hooks': [create_progress_hook(download_id)],
         'outtmpl': output_template,
-        'no_warnings': False,  # Enable warnings for debugging
-        'quiet': False,  # Enable output for debugging
-        'verbose': True,  # Add verbose output
-        'cookiefile': 'cookies/youtube.txt',  # Use cookies file if available
-        'socket_timeout': 30,  # Increase timeout
-        'retries': 10,  # Increase retries
+        'no_warnings': False,
+        'quiet': False,
+        'verbose': True,
+        'socket_timeout': 30,
+        'retries': 10,
         'file_access_retries': 10,
         'fragment_retries': 10,
         'http_headers': {
@@ -116,13 +148,11 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
             'Sec-Fetch-Site': 'same-origin',
             'Sec-Fetch-User': '?1',
             'Upgrade-Insecure-Requests': '1',
-        },
-        'extractor_args': {
-            'youtube': {
-                'player_skip': ['js', 'configs', 'webpage']
-            }
         }
     }
+    
+    if proxy:
+        common_opts['proxy'] = proxy.get('http')
     
     # Only add ffmpeg_location if it exists
     if FFMPEG_DIR:
@@ -262,7 +292,6 @@ async def get_file_info(request: FileInfoRequest):
             'quiet': False,  # Enable output for debugging
             'no_warnings': False,  # Enable warnings for debugging
             'verbose': True,  # Add verbose output
-            'cookiefile': 'cookies/youtube.txt',  # Use cookies file if available
             'socket_timeout': 30,
             'retries': 10,
             'file_access_retries': 10,
