@@ -184,9 +184,9 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
 
 class InnertubeAPI:
     def __init__(self):
-        self.base_url = "https://www.youtube.com/youtubei/v1"
+        self.base_url = "https://youtubei.googleapis.com/youtubei/v1"
         self.api_key = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
-        self.client_version = "2.20240214.01.00"
+        self.client_version = "17.31.35"
         self.client_name = "ANDROID"
         self.client = {
             "clientName": self.client_name,
@@ -196,12 +196,12 @@ class InnertubeAPI:
             "osVersion": "11.0",
             "platform": "MOBILE",
             "clientFormFactor": "SMALL_FORM_FACTOR",
-            "timeZone": "Europe/London",
-            "browserName": "Chrome Mobile",
-            "browserVersion": "121.0.6167.143",
-            "userAgent": "com.google.android.youtube/17.31.35 (Linux; U; Android 11; en_GB)",
+            "hl": "en",
+            "gl": "US",
+            "clientScreen": "WATCH",
+            "userAgent": "com.google.android.youtube/17.31.35 (Linux; U; Android 11; en_US)",
             "acceptHeader": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "acceptLanguage": "en-GB,en-US;q=0.9,en;q=0.8",
+            "acceptLanguage": "en-US,en;q=0.9"
         }
         
         self.session = requests.Session()
@@ -209,13 +209,13 @@ class InnertubeAPI:
             "User-Agent": self.client["userAgent"],
             "Accept": self.client["acceptHeader"],
             "Accept-Language": self.client["acceptLanguage"],
-            "x-goog-api-key": self.api_key,
-            "x-goog-visitor-id": "",
-            "x-youtube-client-name": "3",
-            "x-youtube-client-version": self.client_version,
-            "content-type": "application/json",
-            "Origin": "https://www.youtube.com",
-            "Referer": "https://www.youtube.com/",
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-AuthUser": "0",
+            "X-Origin": "https://www.youtube.com",
+            "X-YouTube-Client-Name": "3",
+            "X-YouTube-Client-Version": self.client_version,
+            "X-Requested-With": "com.google.android.youtube",
         })
 
     def get_video_info(self, video_id):
@@ -233,18 +233,23 @@ class InnertubeAPI:
             "playbackContext": {
                 "contentPlaybackContext": {
                     "html5Preference": "HTML5_PREF_WANTS",
-                    "signatureTimestamp": "19757",
-                    "referer": "https://www.youtube.com/watch?v=" + video_id,
+                    "signatureTimestamp": "19757"
                 }
-            }
+            },
+            "racyCheckOk": True,
+            "contentCheckOk": True
         }
         
         try:
-            response = self.session.post(url, json=data)
+            print(f"Making request to {url} with data: {json.dumps(data, indent=2)}")
+            response = self.session.post(url, json=data, timeout=30)
             response.raise_for_status()
             return response.json()
         except Exception as e:
             print(f"Error getting video info: {str(e)}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Response status: {e.response.status_code}")
+                print(f"Response content: {e.response.text}")
             return None
 
     def get_stream_urls(self, video_info):
