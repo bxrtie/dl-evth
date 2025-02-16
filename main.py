@@ -315,7 +315,21 @@ def cleanup_downloads():
 # Schedule cleanup every hour
 @app.on_event("startup")
 async def startup_event():
+    print("Starting application...")
+    print(f"Static directory: {STATIC_DIR}")
+    print(f"Download directory: {DOWNLOAD_DIR}")
     cleanup_downloads()  # Initial cleanup
+    
+    # Start background cleanup task
+    asyncio.create_task(periodic_cleanup())
+
+async def periodic_cleanup():
     while True:
         await asyncio.sleep(3600)  # Run every hour
         cleanup_downloads()
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", "8000"))
+    print(f"Starting server on port {port}")
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
