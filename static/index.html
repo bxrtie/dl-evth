@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DL-EVTH</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="bg-gray-100 min-h-screen dark:bg-gray-900 transition-colors duration-200">
+    <div class="absolute top-4 right-4">
+        <button id="themeToggle" class="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
+            <svg id="sunIcon" class="w-6 h-6 text-yellow-500 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+            </svg>
+            <svg id="moonIcon" class="w-6 h-6 text-gray-500 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+            </svg>
+        </button>
+    </div>
+    <div class="container mx-auto px-4 py-8 max-w-2xl">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+            <h1 class="text-3xl font-bold text-center mb-8 text-gray-800 dark:text-white">DL-EVTH</h1>
+            
+            <form id="downloadForm" class="space-y-4">
+                <div>
+                    <label for="url" class="block text-sm font-medium text-gray-700 dark:text-gray-300">URL</label>
+                    <input type="text" id="url" name="url" required
+                        class="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:text-white"
+                        placeholder="please enter a valid URL...">
+                </div>
+
+                <div>
+                    <label for="format" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Format</label>
+                    <select id="format" name="format" required
+                        class="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm dark:text-white">
+                        <option value="mp4">MP4 Video</option>
+                        <option value="webm">WebM Video</option>
+                        <option value="mov">MOV Video</option>
+                        <option value="avi">AVI Video</option>
+                        <option value="mkv">MKV Video</option>
+                        <option value="mpeg">MPEG Video</option>
+                        <option value="mp3">MP3 Audio</option>
+                        <option value="wav">WAV Audio</option>
+                        <option value="flac">FLAC Audio</option>
+                    </select>
+                </div>
+
+                <div id="fileInfo" class="hidden mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">File Information</h3>
+                    <div class="mt-2 space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                        <p id="fileTitle"></p>
+                        <p id="fileSize"></p>
+                        <p id="estimatedTime"></p>
+                    </div>
+                </div>
+
+                <button type="submit"
+                    class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors duration-200">
+                    Download
+                </button>
+            </form>
+
+            <div id="status" class="mt-4 text-center hidden">
+                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+                    <div id="progress-bar" class="h-full bg-blue-600 transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <div class="mt-2 text-sm">
+                    <span id="progress-text" class="text-gray-600 dark:text-gray-400">Starting download...</span>
+                    <div id="progress-details" class="mt-1 text-gray-500 dark:text-gray-400 text-xs"></div>
+                </div>
+            </div>
+
+            <div id="error" class="mt-4 text-red-600 dark:text-red-400 text-center hidden"></div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
