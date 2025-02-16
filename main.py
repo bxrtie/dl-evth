@@ -32,7 +32,7 @@ STATIC_DIR.mkdir(exist_ok=True)
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 # Store progress information in memory
-download_progress: Dict[str, dict] = {}
+downloads: Dict[str, dict] = {}
 
 # Mount static files
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
@@ -187,62 +187,94 @@ class InnertubeAPI:
         self.base_url = "https://www.youtube.com/youtubei/v1"
         self.client = {
             'clientName': 'ANDROID',
-            'clientVersion': '17.31.35',
-            'androidSdkVersion': 30,
+            'clientVersion': '18.11.34',
+            'androidSdkVersion': 33,
+            'osName': 'Android',
+            'osVersion': '13',
+            'platform': 'MOBILE',
             'hl': 'en',
-            'gl': 'US',
-            'platform': 'MOBILE'
+            'gl': 'US'
         }
-        self.key = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"  # Public Android client key
+        self.context = {
+            'client': self.client,
+            'thirdParty': {
+                'embedUrl': 'https://www.youtube.com'
+            }
+        }
+        self.key = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w"  # Latest Android key
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
-            'Accept': '*/*',
-            'Content-Type': 'application/json',
+            'User-Agent': 'com.google.android.youtube/18.11.34 (Linux; U; Android 13; US) gzip',
+            'X-YouTube-Client-Name': '3',
+            'X-YouTube-Client-Version': '18.11.34',
             'X-Goog-Api-Key': self.key,
-            'Host': 'www.youtube.com',
-            'Connection': 'Keep-Alive',
-            'Accept-Encoding': 'gzip'
+            'X-Origin': 'https://www.youtube.com',
+            'Content-Type': 'application/json',
+            'Accept': '*/*',
+            'Origin': 'https://www.youtube.com',
+            'Referer': 'https://www.youtube.com'
         })
 
     def get_video_info(self, video_id: str) -> dict:
-        url = f"{self.base_url}/player?key={self.key}"
+        """Get video info using Innertube API."""
+        url = f"{self.base_url}/player"
         data = {
             'videoId': video_id,
-            'context': {
-                'client': self.client,
-                'thirdParty': {
-                    'embedUrl': 'https://www.youtube.com'
-                }
-            },
+            'context': self.context,
             'playbackContext': {
                 'contentPlaybackContext': {
                     'html5Preference': 'HTML5_PREF_WANTS'
                 }
-            }
+            },
+            'racyCheckOk': True,
+            'contentCheckOk': True,
+            'key': self.key
         }
         
-        response = self.session.post(url, json=data)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = self.session.post(url, json=data)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            print(f"Error getting video info: {e}")
+            print(f"Response content: {response.text if 'response' in locals() else 'No response'}")
+            raise
 
     def extract_video_formats(self, video_info: dict) -> list:
+        """Extract available video formats from video info."""
         formats = []
         try:
-            for fmt in video_info.get('streamingData', {}).get('adaptiveFormats', []):
-                formats.append({
+            # Try adaptive formats first
+            adaptive_formats = video_info.get('streamingData', {}).get('adaptiveFormats', [])
+            formats.extend(adaptive_formats)
+            
+            # Then try progressive formats
+            progressive_formats = video_info.get('streamingData', {}).get('formats', [])
+            formats.extend(progressive_formats)
+            
+            # Process and clean up format information
+            processed_formats = []
+            for fmt in formats:
+                if not fmt.get('url') and fmt.get('signatureCipher'):
+                    # Handle signature cipher if needed
+                    continue
+                    
+                processed_formats.append({
                     'url': fmt.get('url'),
                     'mimeType': fmt.get('mimeType', ''),
                     'quality': fmt.get('quality', ''),
+                    'qualityLabel': fmt.get('qualityLabel', ''),
                     'bitrate': fmt.get('bitrate', 0),
                     'width': fmt.get('width', 0),
                     'height': fmt.get('height', 0),
                     'contentLength': fmt.get('contentLength', '0'),
                     'type': 'video' if fmt.get('mimeType', '').startswith('video') else 'audio'
                 })
-            return formats
+            
+            return processed_formats
         except Exception as e:
             print(f"Error extracting formats: {e}")
+            print(f"Video info: {json.dumps(video_info, indent=2)}")
             return []
 
 def get_video_id(url: str) -> str:
@@ -262,12 +294,18 @@ def download_with_innertube(url: str, format_info: dict, output_path: str) -> di
     try:
         video_id = get_video_id(url)
         api = InnertubeAPI()
+        
+        print(f"Getting video info for {video_id}")
         video_info = api.get_video_info(video_id)
+        
+        print("Extracting formats")
         formats = api.extract_video_formats(video_info)
         
         if not formats:
             raise ValueError("No formats found")
             
+        print(f"Available formats: {len(formats)}")
+        
         # Select best format based on requirements
         if format_info['type'] == 'video':
             video_formats = [f for f in formats if f['type'] == 'video' and 'mp4' in f['mimeType'].lower()]
@@ -276,15 +314,21 @@ def download_with_innertube(url: str, format_info: dict, output_path: str) -> di
             if not video_formats or not audio_formats:
                 raise ValueError("Required formats not found")
                 
+            print(f"Found {len(video_formats)} video formats and {len(audio_formats)} audio formats")
+            
             # Get best video and audio formats
             video_format = max(video_formats, key=lambda x: x['bitrate'])
             audio_format = max(audio_formats, key=lambda x: x['bitrate'])
+            
+            print(f"Selected video quality: {video_format['qualityLabel']}")
+            print(f"Selected audio bitrate: {audio_format['bitrate']}")
             
             # Download video and audio separately
             video_path = f"{output_path}.video.mp4"
             audio_path = f"{output_path}.audio.m4a"
             
             # Download video
+            print("Downloading video stream")
             video_response = requests.get(video_format['url'], stream=True)
             video_response.raise_for_status()
             with open(video_path, 'wb') as f:
@@ -292,6 +336,7 @@ def download_with_innertube(url: str, format_info: dict, output_path: str) -> di
                     f.write(chunk)
                     
             # Download audio
+            print("Downloading audio stream")
             audio_response = requests.get(audio_format['url'], stream=True)
             audio_response.raise_for_status()
             with open(audio_path, 'wb') as f:
@@ -299,6 +344,7 @@ def download_with_innertube(url: str, format_info: dict, output_path: str) -> di
                     f.write(chunk)
                     
             # Merge video and audio
+            print("Merging streams")
             if FFMPEG_DIR:
                 ffmpeg_path = str(FFMPEG_DIR / 'ffmpeg')
             else:
@@ -322,6 +368,8 @@ def download_with_innertube(url: str, format_info: dict, output_path: str) -> di
                 raise ValueError("No audio formats found")
                 
             audio_format = max(audio_formats, key=lambda x: x['bitrate'])
+            print(f"Downloading audio, bitrate: {audio_format['bitrate']}")
+            
             response = requests.get(audio_format['url'], stream=True)
             response.raise_for_status()
             
@@ -335,7 +383,8 @@ def download_with_innertube(url: str, format_info: dict, output_path: str) -> di
         }
         
     except Exception as e:
-        raise Exception(f"Download failed: {str(e)}")
+        print(f"Download failed: {str(e)}")
+        raise
 
 @app.get("/")
 async def read_root():
@@ -350,7 +399,7 @@ def create_progress_hook(download_id: str):
             # Calculate percentage only if total_bytes is available
             percent = (downloaded_bytes / total_bytes * 100) if total_bytes else 0
             
-            download_progress[download_id] = {
+            downloads[download_id] = {
                 'status': 'downloading',
                 'downloaded_bytes': downloaded_bytes,
                 'total_bytes': total_bytes,
@@ -360,18 +409,20 @@ def create_progress_hook(download_id: str):
                 'percent': percent
             }
         elif d['status'] == 'finished':
-            download_progress[download_id] = {
+            downloads[download_id] = {
                 'status': 'finished',
                 'filename': d.get('filename', '')
             }
         else:
-            download_progress[download_id] = {
+            downloads[download_id] = {
                 'status': d['status']
             }
     return progress_hook
 
 @app.post("/download")
 async def download_file(request: VideoRequest):
+    """Handle file download request."""
+    download_id = None
     try:
         # Validate video source
         video_source = get_video_source(request.url)
@@ -382,103 +433,110 @@ async def download_file(request: VideoRequest):
         
         # Create unique download ID and output path
         download_id = str(uuid.uuid4())
-        download_progress[download_id] = {'status': 'downloading', 'progress': 0}
+        downloads[download_id] = {'status': 'downloading', 'progress': 0}
         
         output_filename = sanitize_filename(f"{download_id}.{format_info['config']['ext']}")
         output_path = DOWNLOAD_DIR / output_filename
         
-        if video_source == 'youtube':
-            result = download_with_innertube(request.url, format_info, str(output_path))
-            download_progress[download_id] = {'status': 'completed', 'filename': output_filename}
-        else:
-            # Use yt-dlp for other sources
-            ydl_opts = get_yt_dlp_opts(format_info, str(output_path), download_id, video_source)
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([request.url])
-        
-        return {"download_id": download_id, "filename": output_filename}
-        
+        try:
+            if video_source == 'youtube':
+                print(f"Starting YouTube download for {request.url}")
+                result = download_with_innertube(request.url, format_info, str(output_path))
+                downloads[download_id].update({
+                    'status': 'completed',
+                    'progress': 100,
+                    'filename': output_filename
+                })
+                print(f"Download completed: {result}")
+            else:
+                # Use yt-dlp for other sources
+                print(f"Starting yt-dlp download for {request.url}")
+                ydl_opts = get_yt_dlp_opts(format_info, str(output_path), download_id, video_source)
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([request.url])
+            
+            return {
+                "download_id": download_id,
+                "filename": output_filename,
+                "status": "success"
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Download error: {error_msg}")
+            if download_id in downloads:
+                downloads[download_id].update({
+                    'status': 'error',
+                    'error': error_msg
+                })
+            raise HTTPException(status_code=400, detail=error_msg)
+            
     except Exception as e:
-        if download_id in download_progress:
-            download_progress[download_id]['status'] = 'error'
-            download_progress[download_id]['error'] = str(e)
-        raise HTTPException(status_code=400, detail=str(e))
+        error_msg = str(e)
+        print(f"Request error: {error_msg}")
+        if download_id and download_id in downloads:
+            downloads[download_id].update({
+                'status': 'error',
+                'error': error_msg
+            })
+        raise HTTPException(status_code=400, detail=error_msg)
 
 @app.post("/file-info")
 async def get_file_info(request: FileInfoRequest):
+    """Get information about a video file."""
     try:
-        # Validate video source
         video_source = get_video_source(request.url)
-        
         format_info = get_format_info(request.format)
         if not format_info:
             raise HTTPException(status_code=400, detail=f"Unsupported format: {request.format}")
 
-        # Configure yt-dlp options
-        ydl_opts = {
-            'quiet': False,  # Enable output for debugging
-            'no_warnings': False,  # Enable warnings for debugging
-            'verbose': True,  # Add verbose output
-            'socket_timeout': 30,
-            'retries': 10,
-            'file_access_retries': 10,
-            'fragment_retries': 10,
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Referer': 'https://www.youtube.com/',
-                'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"Windows"',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-User': '?1',
-                'Upgrade-Insecure-Requests': '1',
-            },
-            'extractor_args': {
-                'youtube': {
-                    'player_skip': ['js', 'configs', 'webpage']
-                }
-            }
-        }
-        
-        if video_source in ['tiktok', 'instagram']:
-            ydl_opts['format'] = 'best'
-        else:  # youtube
-            ydl_opts['format'] = format_info['config']['format'] if format_info['type'] == 'video' else 'bestaudio/best'
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        if video_source == 'youtube':
             try:
-                info = ydl.extract_info(request.url, download=False)
-                if not info:
-                    raise HTTPException(status_code=400, detail="Could not extract video information")
+                video_id = get_video_id(request.url)
+                api = InnertubeAPI()
+                video_info = api.get_video_info(video_id)
                 
+                if not video_info:
+                    raise HTTPException(status_code=400, detail="Could not fetch video information")
+                
+                # Extract basic video details
+                details = video_info.get('videoDetails', {})
+                return {
+                    "title": details.get('title', 'Unknown Title'),
+                    "duration": int(details.get('lengthSeconds', 0)),
+                    "thumbnail": details.get('thumbnail', {}).get('thumbnails', [{}])[-1].get('url', ''),
+                    "author": details.get('author', 'Unknown Author'),
+                    "format": request.format
+                }
+            except Exception as e:
+                print(f"Error getting YouTube info: {str(e)}")
+                raise HTTPException(status_code=400, detail=str(e))
+        else:
+            # Use yt-dlp for other sources
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': True
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(request.url, download=False)
                 return {
                     "title": info.get('title', 'Unknown Title'),
                     "duration": info.get('duration', 0),
                     "thumbnail": info.get('thumbnail', ''),
+                    "author": info.get('uploader', 'Unknown Author'),
                     "format": request.format
                 }
-            except yt_dlp.utils.DownloadError as e:
-                error_message = str(e)
-                if "Sign in to confirm you're not a bot" in error_message:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="YouTube is requesting verification. Please try again in a few minutes or try a different video."
-                    )
-                raise HTTPException(status_code=400, detail=f"Download error: {error_message}")
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Unexpected error: {str(e)}")
+                
     except Exception as e:
+        print(f"File info error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/progress/{download_id}")
 async def get_progress(download_id: str):
-    if download_id in download_progress:
-        return download_progress[download_id]
+    if download_id in downloads:
+        return downloads[download_id]
     return {"status": "not_found"}
 
 @app.get("/download/{filename}")
