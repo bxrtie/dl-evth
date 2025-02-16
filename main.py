@@ -93,8 +93,26 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
     """Get yt-dlp options based on format and video source."""
     common_opts = {
         'progress_hooks': [create_progress_hook(download_id)],
-        'outtmpl': output_template
+        'outtmpl': output_template,
+        'no_warnings': True,
+        'quiet': True
     }
+    
+    # Add headers to avoid bot detection
+    common_opts.update({
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        },
+        'extractor_args': {
+            'youtube': {
+                'skip': ['dash', 'hls'],
+                'player_skip': ['js', 'configs', 'webpage']
+            }
+        }
+    })
     
     # Only add ffmpeg_location if it exists
     if FFMPEG_DIR:
@@ -231,12 +249,27 @@ async def get_file_info(request: FileInfoRequest):
             raise HTTPException(status_code=400, detail=f"Unsupported format: {request.format}")
 
         # Configure yt-dlp options based on video source
-        if video_source in ['tiktok', 'instagram']:
-            ydl_opts = {'format': 'best'}
-        else:  # youtube
-            ydl_opts = {
-                'format': format_info['config']['format'] if format_info['type'] == 'video' else 'bestaudio/best',
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+            },
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['dash', 'hls'],
+                    'player_skip': ['js', 'configs', 'webpage']
+                }
             }
+        }
+        
+        if video_source in ['tiktok', 'instagram']:
+            ydl_opts['format'] = 'best'
+        else:  # youtube
+            ydl_opts['format'] = format_info['config']['format'] if format_info['type'] == 'video' else 'bestaudio/best'
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(request.url, download=False)
