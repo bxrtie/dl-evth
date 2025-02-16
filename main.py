@@ -185,97 +185,110 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
 class InnertubeAPI:
     def __init__(self):
         self.base_url = "https://www.youtube.com/youtubei/v1"
+        self.api_key = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+        self.client_version = "2.20240214.01.00"
+        self.client_name = "ANDROID"
         self.client = {
-            'clientName': 'ANDROID',
-            'clientVersion': '18.11.34',
-            'androidSdkVersion': 33,
-            'osName': 'Android',
-            'osVersion': '13',
-            'platform': 'MOBILE',
-            'hl': 'en',
-            'gl': 'US'
+            "clientName": self.client_name,
+            "clientVersion": self.client_version,
+            "androidSdkVersion": 30,
+            "osName": "Android",
+            "osVersion": "11.0",
+            "platform": "MOBILE",
+            "clientFormFactor": "SMALL_FORM_FACTOR",
+            "timeZone": "Europe/London",
+            "browserName": "Chrome Mobile",
+            "browserVersion": "121.0.6167.143",
+            "userAgent": "com.google.android.youtube/17.31.35 (Linux; U; Android 11; en_GB)",
+            "acceptHeader": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "acceptLanguage": "en-GB,en-US;q=0.9,en;q=0.8",
         }
-        self.context = {
-            'client': self.client,
-            'thirdParty': {
-                'embedUrl': 'https://www.youtube.com'
-            }
-        }
-        self.key = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w"  # Latest Android key
+        
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'com.google.android.youtube/18.11.34 (Linux; U; Android 13; US) gzip',
-            'X-YouTube-Client-Name': '3',
-            'X-YouTube-Client-Version': '18.11.34',
-            'X-Goog-Api-Key': self.key,
-            'X-Origin': 'https://www.youtube.com',
-            'Content-Type': 'application/json',
-            'Accept': '*/*',
-            'Origin': 'https://www.youtube.com',
-            'Referer': 'https://www.youtube.com'
+            "User-Agent": self.client["userAgent"],
+            "Accept": self.client["acceptHeader"],
+            "Accept-Language": self.client["acceptLanguage"],
+            "x-goog-api-key": self.api_key,
+            "x-goog-visitor-id": "",
+            "x-youtube-client-name": "3",
+            "x-youtube-client-version": self.client_version,
+            "content-type": "application/json",
+            "Origin": "https://www.youtube.com",
+            "Referer": "https://www.youtube.com/",
         })
 
-    def get_video_info(self, video_id: str) -> dict:
-        """Get video info using Innertube API."""
+    def get_video_info(self, video_id):
+        """Get video information using Innertube API."""
         url = f"{self.base_url}/player"
+        
         data = {
-            'videoId': video_id,
-            'context': self.context,
-            'playbackContext': {
-                'contentPlaybackContext': {
-                    'html5Preference': 'HTML5_PREF_WANTS'
+            "videoId": video_id,
+            "context": {
+                "client": self.client,
+                "thirdParty": {
+                    "embedUrl": "https://www.youtube.com"
                 }
             },
-            'racyCheckOk': True,
-            'contentCheckOk': True,
-            'key': self.key
+            "playbackContext": {
+                "contentPlaybackContext": {
+                    "html5Preference": "HTML5_PREF_WANTS",
+                    "signatureTimestamp": "19757",
+                    "referer": "https://www.youtube.com/watch?v=" + video_id,
+                }
+            }
         }
         
         try:
             response = self.session.post(url, json=data)
             response.raise_for_status()
             return response.json()
-        except requests.RequestException as e:
-            print(f"Error getting video info: {e}")
-            print(f"Response content: {response.text if 'response' in locals() else 'No response'}")
-            raise
-
-    def extract_video_formats(self, video_info: dict) -> list:
-        """Extract available video formats from video info."""
-        formats = []
-        try:
-            # Try adaptive formats first
-            adaptive_formats = video_info.get('streamingData', {}).get('adaptiveFormats', [])
-            formats.extend(adaptive_formats)
-            
-            # Then try progressive formats
-            progressive_formats = video_info.get('streamingData', {}).get('formats', [])
-            formats.extend(progressive_formats)
-            
-            # Process and clean up format information
-            processed_formats = []
-            for fmt in formats:
-                if not fmt.get('url') and fmt.get('signatureCipher'):
-                    # Handle signature cipher if needed
-                    continue
-                    
-                processed_formats.append({
-                    'url': fmt.get('url'),
-                    'mimeType': fmt.get('mimeType', ''),
-                    'quality': fmt.get('quality', ''),
-                    'qualityLabel': fmt.get('qualityLabel', ''),
-                    'bitrate': fmt.get('bitrate', 0),
-                    'width': fmt.get('width', 0),
-                    'height': fmt.get('height', 0),
-                    'contentLength': fmt.get('contentLength', '0'),
-                    'type': 'video' if fmt.get('mimeType', '').startswith('video') else 'audio'
-                })
-            
-            return processed_formats
         except Exception as e:
-            print(f"Error extracting formats: {e}")
-            print(f"Video info: {json.dumps(video_info, indent=2)}")
-            return []
+            print(f"Error getting video info: {str(e)}")
+            return None
+
+    def get_stream_urls(self, video_info):
+        """Extract stream URLs from video info."""
+        if not video_info:
+            return None
+            
+        try:
+            formats = []
+            streaming_data = video_info.get("streamingData", {})
+            
+            # Get adaptive formats (separate video and audio streams)
+            for fmt in streaming_data.get("adaptiveFormats", []):
+                formats.append({
+                    "url": fmt.get("url"),
+                    "mimeType": fmt.get("mimeType", ""),
+                    "bitrate": fmt.get("bitrate", 0),
+                    "width": fmt.get("width", 0),
+                    "height": fmt.get("height", 0),
+                    "contentLength": fmt.get("contentLength", "0"),
+                    "quality": fmt.get("quality", ""),
+                    "fps": fmt.get("fps", 0),
+                    "qualityLabel": fmt.get("qualityLabel", ""),
+                    "type": "video" if fmt.get("width") else "audio"
+                })
+                
+            # Get progressive formats (combined video and audio)
+            for fmt in streaming_data.get("formats", []):
+                formats.append({
+                    "url": fmt.get("url"),
+                    "mimeType": fmt.get("mimeType", ""),
+                    "width": fmt.get("width", 0),
+                    "height": fmt.get("height", 0),
+                    "contentLength": fmt.get("contentLength", "0"),
+                    "quality": fmt.get("quality", ""),
+                    "fps": fmt.get("fps", 0),
+                    "qualityLabel": fmt.get("qualityLabel", ""),
+                    "type": "combined"
+                })
+                
+            return formats
+        except Exception as e:
+            print(f"Error extracting stream URLs: {str(e)}")
+            return None
 
 def get_video_id(url: str) -> str:
     """Extract video ID from YouTube URL."""
@@ -293,97 +306,102 @@ def download_with_innertube(url: str, format_info: dict, output_path: str) -> di
     """Download video using Innertube API."""
     try:
         video_id = get_video_id(url)
+        if not video_id:
+            raise ValueError("Invalid YouTube URL")
+            
         api = InnertubeAPI()
-        
-        print(f"Getting video info for {video_id}")
         video_info = api.get_video_info(video_id)
-        
-        print("Extracting formats")
-        formats = api.extract_video_formats(video_info)
-        
-        if not formats:
-            raise ValueError("No formats found")
+        if not video_info:
+            raise ValueError("Could not fetch video information")
             
-        print(f"Available formats: {len(formats)}")
+        streams = api.get_stream_urls(video_info)
+        if not streams:
+            raise ValueError("No streams available")
+            
+        # Select appropriate streams based on format
+        video_stream = None
+        audio_stream = None
         
-        # Select best format based on requirements
         if format_info['type'] == 'video':
-            video_formats = [f for f in formats if f['type'] == 'video' and 'mp4' in f['mimeType'].lower()]
-            audio_formats = [f for f in formats if f['type'] == 'audio' and 'm4a' in f['mimeType'].lower()]
-            
-            if not video_formats or not audio_formats:
-                raise ValueError("Required formats not found")
+            # Find best video stream
+            video_streams = [s for s in streams if s['type'] == 'video' and 'video/mp4' in s.get('mimeType', '')]
+            if video_streams:
+                video_stream = max(video_streams, key=lambda x: x.get('height', 0))
                 
-            print(f"Found {len(video_formats)} video formats and {len(audio_formats)} audio formats")
-            
-            # Get best video and audio formats
-            video_format = max(video_formats, key=lambda x: x['bitrate'])
-            audio_format = max(audio_formats, key=lambda x: x['bitrate'])
-            
-            print(f"Selected video quality: {video_format['qualityLabel']}")
-            print(f"Selected audio bitrate: {audio_format['bitrate']}")
-            
-            # Download video and audio separately
+            # Find best audio stream
+            audio_streams = [s for s in streams if s['type'] == 'audio' and 'audio/mp4' in s.get('mimeType', '')]
+            if audio_streams:
+                audio_stream = max(audio_streams, key=lambda x: x.get('bitrate', 0))
+                
+            if not video_stream or not audio_stream:
+                raise ValueError("Could not find required streams")
+                
+            # Download video and audio streams
             video_path = f"{output_path}.video.mp4"
             audio_path = f"{output_path}.audio.m4a"
             
             # Download video
-            print("Downloading video stream")
-            video_response = requests.get(video_format['url'], stream=True)
-            video_response.raise_for_status()
-            with open(video_path, 'wb') as f:
-                for chunk in video_response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-                    
-            # Download audio
-            print("Downloading audio stream")
-            audio_response = requests.get(audio_format['url'], stream=True)
-            audio_response.raise_for_status()
-            with open(audio_path, 'wb') as f:
-                for chunk in audio_response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-                    
-            # Merge video and audio
-            print("Merging streams")
-            if FFMPEG_DIR:
-                ffmpeg_path = str(FFMPEG_DIR / 'ffmpeg')
-            else:
-                ffmpeg_path = 'ffmpeg'
-                
-            subprocess.run([
-                ffmpeg_path,
-                '-i', video_path,
-                '-i', audio_path,
-                '-c', 'copy',
-                output_path
-            ], check=True)
+            print(f"Downloading video stream: {video_stream['qualityLabel']}")
+            download_stream(video_stream['url'], video_path)
             
-            # Clean up temporary files
+            # Download audio
+            print(f"Downloading audio stream")
+            download_stream(audio_stream['url'], audio_path)
+            
+            # Merge streams
+            print("Merging streams...")
+            merge_streams(video_path, audio_path, output_path)
+            
+            # Cleanup temporary files
             os.remove(video_path)
             os.remove(audio_path)
             
-        else:  # audio only
-            audio_formats = [f for f in formats if f['type'] == 'audio']
-            if not audio_formats:
-                raise ValueError("No audio formats found")
+        else:  # Audio only
+            audio_streams = [s for s in streams if s['type'] == 'audio' and 'audio/mp4' in s.get('mimeType', '')]
+            if not audio_streams:
+                raise ValueError("No audio streams available")
                 
-            audio_format = max(audio_formats, key=lambda x: x['bitrate'])
-            print(f"Downloading audio, bitrate: {audio_format['bitrate']}")
+            audio_stream = max(audio_streams, key=lambda x: x.get('bitrate', 0))
+            download_stream(audio_stream['url'], output_path)
             
-            response = requests.get(audio_format['url'], stream=True)
-            response.raise_for_status()
-            
-            with open(output_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        
-        return {
-            'success': True,
-            'message': 'Download completed successfully'
-        }
+        return "Download completed successfully"
         
     except Exception as e:
-        print(f"Download failed: {str(e)}")
+        print(f"Download error: {str(e)}")
+        raise
+
+def download_stream(url, output_path):
+    """Download a stream to a file."""
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 8192
+        
+        with open(output_path, 'wb') as f:
+            for data in response.iter_content(block_size):
+                f.write(data)
+                
+    except Exception as e:
+        print(f"Error downloading stream: {str(e)}")
+        raise
+
+def merge_streams(video_path, audio_path, output_path):
+    """Merge video and audio streams using FFmpeg."""
+    try:
+        cmd = [
+            'ffmpeg',
+            '-i', video_path,
+            '-i', audio_path,
+            '-c:v', 'copy',
+            '-c:a', 'aac',
+            '-strict', 'experimental',
+            output_path
+        ]
+        subprocess.run(cmd, check=True)
+    except Exception as e:
+        print(f"Error merging streams: {str(e)}")
         raise
 
 @app.get("/")
