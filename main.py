@@ -16,19 +16,17 @@ import asyncio
 
 app = FastAPI()
 
-# Configure CORS with specific origins
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, you should specify your domain
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Create directories if they don't exist
 STATIC_DIR = Path("static")
 DOWNLOAD_DIR = Path("downloads")
-FFMPEG_DIR = Path("/usr/bin")  # FFmpeg will be installed on the server
+
+# In production, FFmpeg is installed globally
+if os.path.exists("/usr/bin/ffmpeg"):
+    FFMPEG_DIR = Path("/usr/bin")
+else:
+    # Local development fallback
+    FFMPEG_DIR = Path(r"C:\Users\bxrtie\Downloads\ffmpeg-master-latest-win64-gpl-shared\bin")
+
 STATIC_DIR.mkdir(exist_ok=True)
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
@@ -37,6 +35,15 @@ download_progress: Dict[str, dict] = {}
 
 # Mount static files
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+
+# Configure CORS with specific origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, you should specify your domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class VideoRequest(BaseModel):
     url: str
@@ -299,13 +306,17 @@ def cleanup_downloads():
         for file_path in DOWNLOAD_DIR.glob("*"):
             if file_path.is_file():
                 if current_time - file_path.stat().st_mtime > 3600:  # 1 hour
-                    file_path.unlink()
+                    try:
+                        file_path.unlink()
+                    except Exception as e:
+                        print(f"Error deleting file {file_path}: {e}")
     except Exception as e:
         print(f"Error during cleanup: {e}")
 
 # Schedule cleanup every hour
 @app.on_event("startup")
 async def startup_event():
+    cleanup_downloads()  # Initial cleanup
     while True:
-        cleanup_downloads()
         await asyncio.sleep(3600)  # Run every hour
+        cleanup_downloads()
