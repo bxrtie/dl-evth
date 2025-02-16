@@ -17,6 +17,7 @@ import random
 import requests
 from bs4 import BeautifulSoup
 from typing import Optional, List, Dict
+import subprocess
 
 app = FastAPI()
 
@@ -181,6 +182,161 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
     
     return {**common_opts, **opts}
 
+class InnertubeAPI:
+    def __init__(self):
+        self.base_url = "https://www.youtube.com/youtubei/v1"
+        self.client = {
+            'clientName': 'ANDROID',
+            'clientVersion': '17.31.35',
+            'androidSdkVersion': 30,
+            'hl': 'en',
+            'gl': 'US',
+            'platform': 'MOBILE'
+        }
+        self.key = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"  # Public Android client key
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
+            'Accept': '*/*',
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': self.key,
+            'Host': 'www.youtube.com',
+            'Connection': 'Keep-Alive',
+            'Accept-Encoding': 'gzip'
+        })
+
+    def get_video_info(self, video_id: str) -> dict:
+        url = f"{self.base_url}/player?key={self.key}"
+        data = {
+            'videoId': video_id,
+            'context': {
+                'client': self.client,
+                'thirdParty': {
+                    'embedUrl': 'https://www.youtube.com'
+                }
+            },
+            'playbackContext': {
+                'contentPlaybackContext': {
+                    'html5Preference': 'HTML5_PREF_WANTS'
+                }
+            }
+        }
+        
+        response = self.session.post(url, json=data)
+        response.raise_for_status()
+        return response.json()
+
+    def extract_video_formats(self, video_info: dict) -> list:
+        formats = []
+        try:
+            for fmt in video_info.get('streamingData', {}).get('adaptiveFormats', []):
+                formats.append({
+                    'url': fmt.get('url'),
+                    'mimeType': fmt.get('mimeType', ''),
+                    'quality': fmt.get('quality', ''),
+                    'bitrate': fmt.get('bitrate', 0),
+                    'width': fmt.get('width', 0),
+                    'height': fmt.get('height', 0),
+                    'contentLength': fmt.get('contentLength', '0'),
+                    'type': 'video' if fmt.get('mimeType', '').startswith('video') else 'audio'
+                })
+            return formats
+        except Exception as e:
+            print(f"Error extracting formats: {e}")
+            return []
+
+def get_video_id(url: str) -> str:
+    """Extract video ID from YouTube URL."""
+    patterns = [
+        r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',
+        r'(?:embed\/|v\/|youtu.be\/)([0-9A-Za-z_-]{11})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    raise ValueError("Invalid YouTube URL")
+
+def download_with_innertube(url: str, format_info: dict, output_path: str) -> dict:
+    """Download video using Innertube API."""
+    try:
+        video_id = get_video_id(url)
+        api = InnertubeAPI()
+        video_info = api.get_video_info(video_id)
+        formats = api.extract_video_formats(video_info)
+        
+        if not formats:
+            raise ValueError("No formats found")
+            
+        # Select best format based on requirements
+        if format_info['type'] == 'video':
+            video_formats = [f for f in formats if f['type'] == 'video' and 'mp4' in f['mimeType'].lower()]
+            audio_formats = [f for f in formats if f['type'] == 'audio' and 'm4a' in f['mimeType'].lower()]
+            
+            if not video_formats or not audio_formats:
+                raise ValueError("Required formats not found")
+                
+            # Get best video and audio formats
+            video_format = max(video_formats, key=lambda x: x['bitrate'])
+            audio_format = max(audio_formats, key=lambda x: x['bitrate'])
+            
+            # Download video and audio separately
+            video_path = f"{output_path}.video.mp4"
+            audio_path = f"{output_path}.audio.m4a"
+            
+            # Download video
+            video_response = requests.get(video_format['url'], stream=True)
+            video_response.raise_for_status()
+            with open(video_path, 'wb') as f:
+                for chunk in video_response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+            # Download audio
+            audio_response = requests.get(audio_format['url'], stream=True)
+            audio_response.raise_for_status()
+            with open(audio_path, 'wb') as f:
+                for chunk in audio_response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+            # Merge video and audio
+            if FFMPEG_DIR:
+                ffmpeg_path = str(FFMPEG_DIR / 'ffmpeg')
+            else:
+                ffmpeg_path = 'ffmpeg'
+                
+            subprocess.run([
+                ffmpeg_path,
+                '-i', video_path,
+                '-i', audio_path,
+                '-c', 'copy',
+                output_path
+            ], check=True)
+            
+            # Clean up temporary files
+            os.remove(video_path)
+            os.remove(audio_path)
+            
+        else:  # audio only
+            audio_formats = [f for f in formats if f['type'] == 'audio']
+            if not audio_formats:
+                raise ValueError("No audio formats found")
+                
+            audio_format = max(audio_formats, key=lambda x: x['bitrate'])
+            response = requests.get(audio_format['url'], stream=True)
+            response.raise_for_status()
+            
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+        
+        return {
+            'success': True,
+            'message': 'Download completed successfully'
+        }
+        
+    except Exception as e:
+        raise Exception(f"Download failed: {str(e)}")
+
 @app.get("/")
 async def read_root():
     return FileResponse(str(STATIC_DIR / "index.html"))
@@ -215,66 +371,37 @@ def create_progress_hook(download_id: str):
     return progress_hook
 
 @app.post("/download")
-async def download_video(request: VideoRequest):
+async def download_file(request: VideoRequest):
     try:
-        # Generate unique ID for progress tracking
-        download_id = str(uuid.uuid4())
-        
-        # Determine video source
+        # Validate video source
         video_source = get_video_source(request.url)
         
-        # First, get video information
-        with yt_dlp.YoutubeDL() as ydl:
-            info = ydl.extract_info(request.url, download=False)
-            video_title = info.get('title', 'video')
-            
-        # Create safe filename from video title
-        safe_title = sanitize_filename(video_title)
-
-        # Get format configuration
         format_info = get_format_info(request.format)
         if not format_info:
             raise HTTPException(status_code=400, detail=f"Unsupported format: {request.format}")
-
-        # Initialize progress
-        download_progress[download_id] = {'status': 'starting'}
-
-        # Set up output template and final filename
-        if format_info['type'] == 'audio':
-            final_filename = f"{safe_title}.{request.format}"
+        
+        # Create unique download ID and output path
+        download_id = str(uuid.uuid4())
+        download_progress[download_id] = {'status': 'downloading', 'progress': 0}
+        
+        output_filename = sanitize_filename(f"{download_id}.{format_info['config']['ext']}")
+        output_path = DOWNLOAD_DIR / output_filename
+        
+        if video_source == 'youtube':
+            result = download_with_innertube(request.url, format_info, str(output_path))
+            download_progress[download_id] = {'status': 'completed', 'filename': output_filename}
         else:
-            final_filename = f"{safe_title}.{format_info['config']['ext']}"
-        
-        output_template = str(DOWNLOAD_DIR / '%(title)s.%(ext)s')
-        
-        # Get yt-dlp options
-        ydl_opts = get_yt_dlp_opts(format_info, output_template, download_id, video_source)
-
-        # Start download process
-        try:
+            # Use yt-dlp for other sources
+            ydl_opts = get_yt_dlp_opts(format_info, str(output_path), download_id, video_source)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                error_code = ydl.download([request.url])
-                if error_code != 0:
-                    raise Exception("Download failed")
-        except Exception as e:
-            download_progress[download_id] = {'status': 'error', 'error': str(e)}
-            raise HTTPException(status_code=400, detail=f"Download failed: {str(e)}")
-
-        # Update progress to finished
-        download_progress[download_id] = {'status': 'finished', 'filename': final_filename}
+                ydl.download([request.url])
         
-        return {
-            "status": "success", 
-            "filename": final_filename, 
-            "download_id": download_id
-        }
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return {"download_id": download_id, "filename": output_filename}
+        
     except Exception as e:
-        # Clean up progress data in case of error
         if download_id in download_progress:
-            download_progress[download_id] = {'status': 'error', 'error': str(e)}
+            download_progress[download_id]['status'] = 'error'
+            download_progress[download_id]['error'] = str(e)
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/file-info")
