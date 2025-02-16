@@ -20,12 +20,8 @@ app = FastAPI()
 STATIC_DIR = Path("static")
 DOWNLOAD_DIR = Path("downloads")
 
-# In production, FFmpeg is installed globally
-if os.path.exists("/usr/bin/ffmpeg"):
-    FFMPEG_DIR = Path("/usr/bin")
-else:
-    # Local development fallback
-    FFMPEG_DIR = Path(r"C:\Users\bxrtie\Downloads\ffmpeg-master-latest-win64-gpl-shared\bin")
+# FFmpeg is pre-installed on Render
+FFMPEG_DIR = None  # Let yt-dlp find ffmpeg automatically
 
 STATIC_DIR.mkdir(exist_ok=True)
 DOWNLOAD_DIR.mkdir(exist_ok=True)
@@ -96,10 +92,13 @@ def get_format_info(format: str):
 def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, video_source: str) -> dict:
     """Get yt-dlp options based on format and video source."""
     common_opts = {
-        'ffmpeg_location': str(FFMPEG_DIR),
         'progress_hooks': [create_progress_hook(download_id)],
         'outtmpl': output_template
     }
+    
+    # Only add ffmpeg_location if it exists
+    if FFMPEG_DIR:
+        common_opts['ffmpeg_location'] = str(FFMPEG_DIR)
     
     if format_info['type'] == 'audio':
         opts = {
