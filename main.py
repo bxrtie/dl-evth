@@ -94,25 +94,35 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
     common_opts = {
         'progress_hooks': [create_progress_hook(download_id)],
         'outtmpl': output_template,
-        'no_warnings': True,
-        'quiet': True
-    }
-    
-    # Add headers to avoid bot detection
-    common_opts.update({
+        'no_warnings': False,  # Enable warnings for debugging
+        'quiet': False,  # Enable output for debugging
+        'verbose': True,  # Add verbose output
+        'cookiefile': 'cookies/youtube.txt',  # Use cookies file if available
+        'socket_timeout': 30,  # Increase timeout
+        'retries': 10,  # Increase retries
+        'file_access_retries': 10,
+        'fragment_retries': 10,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://www.youtube.com/',
+            'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"',
+            'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-User': '?1',
+            'Upgrade-Insecure-Requests': '1',
         },
         'extractor_args': {
             'youtube': {
-                'skip': ['dash', 'hls'],
                 'player_skip': ['js', 'configs', 'webpage']
             }
         }
-    })
+    }
     
     # Only add ffmpeg_location if it exists
     if FFMPEG_DIR:
@@ -129,7 +139,6 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
         }
     else:  # video
         if video_source in ['tiktok', 'instagram']:
-            # For TikTok and Instagram, we want to download the best quality available
             opts = {
                 'format': 'best',
                 'merge_output_format': format_info['config']['ext']
@@ -248,19 +257,33 @@ async def get_file_info(request: FileInfoRequest):
         if not format_info:
             raise HTTPException(status_code=400, detail=f"Unsupported format: {request.format}")
 
-        # Configure yt-dlp options based on video source
+        # Configure yt-dlp options
         ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
+            'quiet': False,  # Enable output for debugging
+            'no_warnings': False,  # Enable warnings for debugging
+            'verbose': True,  # Add verbose output
+            'cookiefile': 'cookies/youtube.txt',  # Use cookies file if available
+            'socket_timeout': 30,
+            'retries': 10,
+            'file_access_retries': 10,
+            'fragment_retries': 10,
             'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Referer': 'https://www.youtube.com/',
+                'Sec-Ch-Ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"',
+                'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'same-origin',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1',
             },
             'extractor_args': {
                 'youtube': {
-                    'skip': ['dash', 'hls'],
                     'player_skip': ['js', 'configs', 'webpage']
                 }
             }
@@ -272,41 +295,27 @@ async def get_file_info(request: FileInfoRequest):
             ydl_opts['format'] = format_info['config']['format'] if format_info['type'] == 'video' else 'bestaudio/best'
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(request.url, download=False)
-            
-            # Get file size based on format and source
-            if format_info['type'] == 'video':
-                if video_source in ['tiktok', 'instagram']:
-                    # For TikTok and Instagram, use the best format's filesize
-                    filesize = info.get('filesize') or info.get('filesize_approx')
-                else:
-                    # For YouTube, handle multiple formats
-                    formats = info['formats']
-                    selected_format = None
-                    for f in formats:
-                        if f.get('ext') == format_info['config']['ext']:
-                            if not selected_format or (f.get('filesize') or 0) > (selected_format.get('filesize') or 0):
-                                selected_format = f
-                    filesize = selected_format.get('filesize') if selected_format else info.get('filesize')
-            else:
-                # For audio, get the best audio format size
-                formats = [f for f in info['formats'] if f.get('acodec') != 'none']
-                filesize = max((f.get('filesize') or 0) for f in formats)
-
-            # Estimate download speed (assume 5MB/s as average)
-            avg_speed = 5 * 1024 * 1024  # 5MB/s in bytes/s
-            estimated_time = filesize / avg_speed if filesize else None
-
-            return {
-                "title": info.get('title'),
-                "duration": info.get('duration'),
-                "filesize": filesize,
-                "estimated_time": estimated_time,
-                "avg_speed": avg_speed
-            }
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+            try:
+                info = ydl.extract_info(request.url, download=False)
+                if not info:
+                    raise HTTPException(status_code=400, detail="Could not extract video information")
+                
+                return {
+                    "title": info.get('title', 'Unknown Title'),
+                    "duration": info.get('duration', 0),
+                    "thumbnail": info.get('thumbnail', ''),
+                    "format": request.format
+                }
+            except yt_dlp.utils.DownloadError as e:
+                error_message = str(e)
+                if "Sign in to confirm you're not a bot" in error_message:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="YouTube is requesting verification. Please try again in a few minutes or try a different video."
+                    )
+                raise HTTPException(status_code=400, detail=f"Download error: {error_message}")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Unexpected error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

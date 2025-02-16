@@ -56,6 +56,19 @@ A simple web application to download YouTube videos as MP4 or MP3 files.
 
 The application will be automatically deployed and available at your Render URL.
 
+## Handling YouTube Bot Detection
+
+If you encounter the "Sign in to confirm you're not a bot" error, follow these steps:
+
+1. Create a `cookies` directory in the project root
+2. Export your YouTube cookies from your browser:
+   - Install a cookie export extension (like "Get cookies.txt" for Chrome)
+   - Visit YouTube and make sure you're signed in
+   - Export cookies to `cookies/youtube.txt`
+3. Make sure the cookies file is readable by the application
+
+Note: The cookies file is optional. Without it, some videos may still work, but others might require bot verification.
+
 ## Security Notes
 
 - The application implements basic rate limiting
