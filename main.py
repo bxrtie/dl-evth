@@ -86,6 +86,7 @@ def get_format_info(format: str):
 
 def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, video_source: str) -> dict:
     """Get yt-dlp options based on format and video source."""
+    
     # Standard options
     common_opts = {
         'progress_hooks': [create_progress_hook(download_id)],
@@ -93,10 +94,16 @@ def get_yt_dlp_opts(format_info: dict, output_template: str, download_id: str, v
         'ffmpeg_location': str(FFMPEG_DIR)
     }
     
-    # Add YouTube cookies if environment variable is set
+    # Get cookies from environment variable
     youtube_cookies = os.getenv("YOUTUBE_COOKIES")
+
+    # If cookies exist, save them to a file and use them
     if youtube_cookies:
-        common_opts["cookiefile"] = youtube_cookies
+        cookie_file_path = os.path.join(os.environ.get('TEMP', '/tmp'), "youtube_cookies.txt")
+        with open(cookie_file_path, "w") as cookie_file:
+            cookie_file.write(youtube_cookies)
+        
+        common_opts["cookiefile"] = cookie_file_path  # Use cookies
     
     if format_info['type'] == 'audio':
         opts = {
